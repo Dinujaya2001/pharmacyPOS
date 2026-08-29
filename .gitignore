@@ -1,0 +1,19 @@
+# Compiled Class files
+*.class
+
+# Package Files #
+*.jar
+*.war
+target/
+build/
+.gradle/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+
+# Environment & Dependencies
+node_modules/
+.env
+local.properties
