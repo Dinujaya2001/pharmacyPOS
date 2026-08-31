@@ -5,6 +5,9 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import PosBilling from './pages/PosBilling';
+import Inventory from './pages/Inventory';
+import Suppliers from './pages/Suppliers';
+import Prescriptions from './pages/Prescriptions';
 
 const ProtectedRoute = ({ children }) => {
   const { user } = useAuth();
@@ -30,9 +33,9 @@ export default function App() {
           >
             <Route index element={<Dashboard />} />
             <Route path="pos" element={<PosBilling />} />
-            <Route path="inventory" element={<div className="p-6">Inventory Management Page (Coming next)</div>} />
-            <Route path="suppliers" element={<div className="p-6">Suppliers & GRN Page (Coming next)</div>} />
-            <Route path="prescriptions" element={<div className="p-6">Prescription Reviewer Page (Coming next)</div>} />
+            <Route path="inventory" element={<Inventory />} />
+            <Route path="suppliers" element={<Suppliers />} />
+            <Route path="prescriptions" element={<Prescriptions />} />
           </Route>
         </Routes>
       </BrowserRouter>
