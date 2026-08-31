@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axiosClient from '../api/axiosClient';
-import { Search, ShoppingCart, Trash2, Plus, Minus, CheckCircle, Printer } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, Plus, Minus, Printer } from 'lucide-react';
+import ReceiptModal from '../components/ReceiptModal';
 
 export default function PosBilling() {
   const [batches, setBatches] = useState([]);
@@ -9,6 +10,8 @@ export default function PosBilling() {
   const [discount, setDiscount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [lastOrder, setLastOrder] = useState(null);
+  const [receiptData, setReceiptData] = useState(null);
+  const [showReceipt, setShowReceipt] = useState(false);
 
   useEffect(() => {
     fetchBatches();
@@ -17,63 +20,95 @@ export default function PosBilling() {
   const fetchBatches = async () => {
     try {
       const res = await axiosClient.get('/inventory/batches');
-      setBatches(res.data.filter(b => b.quantity > 0));
+      setBatches(res.data.filter((b) => b.quantity > 0));
     } catch (err) {
       console.error('Failed to fetch batches', err);
     }
   };
 
   const addToCart = (batch) => {
-    const existing = cart.find(item => item.batchId === batch.id);
+    const existing = cart.find((item) => item.batchId === batch.id);
     if (existing) {
       if (existing.quantity + 1 > batch.quantity) {
         alert('Stock limit reached for this batch');
         return;
       }
-      setCart(cart.map(item => item.batchId === batch.id ? { ...item, quantity: item.quantity + 1 } : item));
+      setCart(
+        cart.map((item) =>
+          item.batchId === batch.id ? { ...item, quantity: item.quantity + 1 } : item
+        )
+      );
     } else {
-      setCart([...cart, {
-        batchId: batch.id,
-        name: batch.medicine.name,
-        batchNumber: batch.batchNumber,
-        unitPrice: batch.sellingPrice,
-        maxStock: batch.quantity,
-        quantity: 1
-      }]);
+      setCart([
+        ...cart,
+        {
+          batchId: batch.id,
+          name: batch.medicine.name,
+          batchNumber: batch.batchNumber,
+          unitPrice: batch.sellingPrice,
+          maxStock: batch.quantity,
+          quantity: 1
+        }
+      ]);
     }
   };
 
   const updateQuantity = (batchId, delta) => {
-    setCart(cart.map(item => {
-      if (item.batchId === batchId) {
-        const newQty = item.quantity + delta;
-        if (newQty > item.maxStock) {
-          alert('Stock limit exceeded');
+    setCart(
+      cart
+        .map((item) => {
+          if (item.batchId === batchId) {
+            const newQty = item.quantity + delta;
+            if (newQty > item.maxStock) {
+              alert('Stock limit exceeded');
+              return item;
+            }
+            return newQty > 0 ? { ...item, quantity: newQty } : null;
+          }
           return item;
-        }
-        return newQty > 0 ? { ...item, quantity: newQty } : null;
-      }
-      return item;
-    }).filter(Boolean));
+        })
+        .filter(Boolean)
+    );
   };
 
   const removeFromCart = (batchId) => {
-    setCart(cart.filter(item => item.batchId !== batchId));
+    setCart(cart.filter((item) => item.batchId !== batchId));
   };
 
-  const grossTotal = cart.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+  const grossTotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
   const netTotal = Math.max(0, grossTotal - Number(discount));
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
+
     try {
       const payload = {
-        paymentMethod,
-        discountAmount: Number(discount),
-        items: cart.map(i => ({ batchId: i.batchId, quantity: i.quantity }))
+        paymentMethod: paymentMethod || 'CASH',
+        discountAmount: Number(discount) || 0,
+        items: cart.map((i) => ({
+          batchId: i.batchId,
+          quantity: i.quantity
+        }))
       };
+
       const res = await axiosClient.post('/orders', payload);
+
+      // Receipt Preview Modal එක සඳහා දත්ත සකස් කිරීම
+      setReceiptData({
+        orderId: res.data?.id || Math.floor(1000 + Math.random() * 9000),
+        items: cart.map((c) => ({
+          medicineName: c.name,
+          quantity: c.quantity,
+          unitPrice: c.unitPrice
+        })),
+        subtotal: grossTotal,
+        discount: Number(discount) || 0,
+        netTotal: netTotal,
+        paymentMethod: paymentMethod || 'CASH'
+      });
+
       setLastOrder(res.data);
+      setShowReceipt(true);
       setCart([]);
       setDiscount(0);
       fetchBatches();
@@ -82,15 +117,16 @@ export default function PosBilling() {
     }
   };
 
-  const filteredBatches = batches.filter(b => 
-    b.medicine?.name.toLowerCase().includes(search.toLowerCase()) ||
-    b.batchNumber.toLowerCase().includes(search.toLowerCase())
+  const filteredBatches = batches.filter(
+    (b) =>
+      b.medicine?.name.toLowerCase().includes(search.toLowerCase()) ||
+      b.batchNumber.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-6rem)]">
       {/* Product Selection Area */}
-      <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 flex flex-col">
+      <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 flex flex-col shadow-sm">
         <div className="relative mb-4">
           <Search className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
           <input
@@ -98,20 +134,22 @@ export default function PosBilling() {
             placeholder="Search medicine by name or batch..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
           />
         </div>
 
         <div className="flex-1 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-3 pr-1">
-          {filteredBatches.map(batch => (
-            <div 
-              key={batch.id} 
+          {filteredBatches.map((batch) => (
+            <div
+              key={batch.id}
               onClick={() => addToCart(batch)}
               className="p-3 border border-slate-100 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/20 rounded-xl cursor-pointer transition flex flex-col justify-between"
             >
               <div>
                 <h4 className="font-bold text-slate-800 text-sm">{batch.medicine?.name}</h4>
-                <p className="text-[11px] text-slate-500">Batch: {batch.batchNumber} | Exp: {batch.expiryDate}</p>
+                <p className="text-[11px] text-slate-500">
+                  Batch: {batch.batchNumber} | Exp: {batch.expiryDate}
+                </p>
               </div>
               <div className="mt-2 flex items-center justify-between">
                 <span className="font-bold text-emerald-600 text-sm">Rs. {batch.sellingPrice}</span>
@@ -121,6 +159,12 @@ export default function PosBilling() {
               </div>
             </div>
           ))}
+
+          {filteredBatches.length === 0 && (
+            <div className="col-span-full py-12 text-center text-slate-400 text-sm">
+              No in-stock medicines found matching your search.
+            </div>
+          )}
         </div>
       </div>
 
@@ -137,29 +181,49 @@ export default function PosBilling() {
           </div>
 
           <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
-            {cart.map(item => (
-              <div key={item.batchId} className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-100">
+            {cart.map((item) => (
+              <div
+                key={item.batchId}
+                className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-100"
+              >
                 <div className="truncate w-32">
                   <p className="font-semibold text-slate-800 text-xs truncate">{item.name}</p>
                   <p className="text-[10px] text-slate-400">Rs. {item.unitPrice} each</p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button onClick={() => updateQuantity(item.batchId, -1)} className="p-1 bg-white border border-slate-200 rounded-md hover:bg-slate-100">
+                  <button
+                    onClick={() => updateQuantity(item.batchId, -1)}
+                    className="p-1 bg-white border border-slate-200 rounded-md hover:bg-slate-100"
+                  >
                     <Minus className="w-3 h-3 text-slate-600" />
                   </button>
                   <span className="text-xs font-bold w-5 text-center">{item.quantity}</span>
-                  <button onClick={() => updateQuantity(item.batchId, 1)} className="p-1 bg-white border border-slate-200 rounded-md hover:bg-slate-100">
+                  <button
+                    onClick={() => updateQuantity(item.batchId, 1)}
+                    className="p-1 bg-white border border-slate-200 rounded-md hover:bg-slate-100"
+                  >
                     <Plus className="w-3 h-3 text-slate-600" />
                   </button>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs font-bold text-slate-800">Rs. {(item.unitPrice * item.quantity).toFixed(2)}</p>
-                  <button onClick={() => removeFromCart(item.batchId)} className="text-rose-500 text-[10px] hover:underline">
+                  <p className="text-xs font-bold text-slate-800">
+                    Rs. {(item.unitPrice * item.quantity).toFixed(2)}
+                  </p>
+                  <button
+                    onClick={() => removeFromCart(item.batchId)}
+                    className="text-rose-500 text-[10px] hover:underline"
+                  >
                     Remove
                   </button>
                 </div>
               </div>
             ))}
+
+            {cart.length === 0 && (
+              <div className="py-8 text-center text-slate-400 text-xs">
+                Cart is empty. Click a medicine to add.
+              </div>
+            )}
           </div>
         </div>
 
@@ -185,17 +249,25 @@ export default function PosBilling() {
           </div>
 
           <div className="grid grid-cols-2 gap-2 pt-2">
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={() => setPaymentMethod('CASH')}
-              className={`py-1.5 text-xs font-semibold rounded-lg border ${paymentMethod === 'CASH' ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-50 text-slate-600'}`}
+              className={`py-1.5 text-xs font-semibold rounded-lg border transition ${
+                paymentMethod === 'CASH'
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-slate-50 text-slate-600 border-slate-200'
+              }`}
             >
               CASH
             </button>
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={() => setPaymentMethod('CARD')}
-              className={`py-1.5 text-xs font-semibold rounded-lg border ${paymentMethod === 'CARD' ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-50 text-slate-600'}`}
+              className={`py-1.5 text-xs font-semibold rounded-lg border transition ${
+                paymentMethod === 'CARD'
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-slate-50 text-slate-600 border-slate-200'
+              }`}
             >
               CARD
             </button>
@@ -210,6 +282,13 @@ export default function PosBilling() {
           </button>
         </div>
       </div>
+
+      {/* Thermal Receipt Modal */}
+      <ReceiptModal
+        isOpen={showReceipt}
+        onClose={() => setShowReceipt(false)}
+        orderData={receiptData}
+      />
     </div>
   );
 }
