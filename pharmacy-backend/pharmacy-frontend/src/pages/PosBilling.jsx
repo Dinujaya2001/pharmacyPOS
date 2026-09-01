@@ -26,16 +26,35 @@ export default function PosBilling() {
     }
   };
 
+  const handleDirectQuantityChange = (batchId, value, maxStock) => {
+    if (value === '') {
+      setCart(cart.map((item) => (item.batchId === batchId ? { ...item, quantity: '' } : item)));
+      return;
+    }
+
+    const numericValue = parseInt(value, 10);
+    if (isNaN(numericValue) || numericValue <= 0) return;
+
+    if (numericValue > maxStock) {
+      alert(`Stock limit exceeded! Only ${maxStock} available.`);
+      setCart(cart.map((item) => (item.batchId === batchId ? { ...item, quantity: maxStock } : item)));
+      return;
+    }
+
+    setCart(cart.map((item) => (item.batchId === batchId ? { ...item, quantity: numericValue } : item)));
+  };
+
   const addToCart = (batch) => {
     const existing = cart.find((item) => item.batchId === batch.id);
     if (existing) {
-      if (existing.quantity + 1 > batch.quantity) {
+      const currentQty = Number(existing.quantity) || 0;
+      if (currentQty + 1 > batch.quantity) {
         alert('Stock limit reached for this batch');
         return;
       }
       setCart(
         cart.map((item) =>
-          item.batchId === batch.id ? { ...item, quantity: item.quantity + 1 } : item
+          item.batchId === batch.id ? { ...item, quantity: currentQty + 1 } : item
         )
       );
     } else {
@@ -43,7 +62,7 @@ export default function PosBilling() {
         ...cart,
         {
           batchId: batch.id,
-          name: batch.medicine.name,
+          name: batch.medicine?.name,
           batchNumber: batch.batchNumber,
           unitPrice: batch.sellingPrice,
           maxStock: batch.quantity,
@@ -58,7 +77,8 @@ export default function PosBilling() {
       cart
         .map((item) => {
           if (item.batchId === batchId) {
-            const newQty = item.quantity + delta;
+            const currentQty = Number(item.quantity) || 0;
+            const newQty = currentQty + delta;
             if (newQty > item.maxStock) {
               alert('Stock limit exceeded');
               return item;
@@ -75,11 +95,17 @@ export default function PosBilling() {
     setCart(cart.filter((item) => item.batchId !== batchId));
   };
 
-  const grossTotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+  const grossTotal = cart.reduce((sum, item) => sum + item.unitPrice * (Number(item.quantity) || 0), 0);
   const netTotal = Math.max(0, grossTotal - Number(discount));
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
+
+    const hasInvalidQty = cart.some((item) => (Number(item.quantity) || 0) <= 0);
+    if (hasInvalidQty) {
+      alert('Please enter valid quantities for all items in the cart.');
+      return;
+    }
 
     try {
       const payload = {
@@ -87,18 +113,17 @@ export default function PosBilling() {
         discountAmount: Number(discount) || 0,
         items: cart.map((i) => ({
           batchId: i.batchId,
-          quantity: i.quantity
+          quantity: Number(i.quantity) || 0
         }))
       };
 
       const res = await axiosClient.post('/orders', payload);
 
-      // Receipt Preview Modal එක සඳහා දත්ත සකස් කිරීම
       setReceiptData({
         orderId: res.data?.id || Math.floor(1000 + Math.random() * 9000),
         items: cart.map((c) => ({
           medicineName: c.name,
-          quantity: c.quantity,
+          quantity: Number(c.quantity) || 0,
           unitPrice: c.unitPrice
         })),
         subtotal: grossTotal,
@@ -119,8 +144,8 @@ export default function PosBilling() {
 
   const filteredBatches = batches.filter(
     (b) =>
-      b.medicine?.name.toLowerCase().includes(search.toLowerCase()) ||
-      b.batchNumber.toLowerCase().includes(search.toLowerCase())
+      b.medicine?.name?.toLowerCase().includes(search.toLowerCase()) ||
+      b.batchNumber?.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -180,41 +205,97 @@ export default function PosBilling() {
             </span>
           </div>
 
-          <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+          <div className="max-h-80 overflow-y-auto space-y-2.5 pr-1">
             {cart.map((item) => (
               <div
                 key={item.batchId}
-                className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-100"
+                className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex flex-col gap-2"
               >
-                <div className="truncate w-32">
-                  <p className="font-semibold text-slate-800 text-xs truncate">{item.name}</p>
-                  <p className="text-[10px] text-slate-400">Rs. {item.unitPrice} each</p>
+                {/* Item Info & Remove */}
+                <div className="flex items-center justify-between">
+                  <div className="truncate pr-2">
+                    <p className="font-semibold text-slate-800 text-xs truncate">{item.name}</p>
+                    <p className="text-[10px] text-slate-400">
+                      Rs. {item.unitPrice} each | Max: {item.maxStock}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-bold text-slate-800">
+                      Rs. {(item.unitPrice * (Number(item.quantity) || 0)).toFixed(2)}
+                    </p>
+                    <button
+                      onClick={() => removeFromCart(item.batchId)}
+                      className="text-rose-500 text-[10px] hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => updateQuantity(item.batchId, -1)}
-                    className="p-1 bg-white border border-slate-200 rounded-md hover:bg-slate-100"
-                  >
-                    <Minus className="w-3 h-3 text-slate-600" />
-                  </button>
-                  <span className="text-xs font-bold w-5 text-center">{item.quantity}</span>
-                  <button
-                    onClick={() => updateQuantity(item.batchId, 1)}
-                    className="p-1 bg-white border border-slate-200 rounded-md hover:bg-slate-100"
-                  >
-                    <Plus className="w-3 h-3 text-slate-600" />
-                  </button>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-bold text-slate-800">
-                    Rs. {(item.unitPrice * item.quantity).toFixed(2)}
-                  </p>
-                  <button
-                    onClick={() => removeFromCart(item.batchId)}
-                    className="text-rose-500 text-[10px] hover:underline"
-                  >
-                    Remove
-                  </button>
+
+                {/* Quantity Controls & Quick Add Buttons */}
+                <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
+                  {/* Direct Input + Minus/Plus */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => updateQuantity(item.batchId, -1)}
+                      className="p-1 bg-white border border-slate-200 rounded-md hover:bg-slate-100 transition"
+                    >
+                      <Minus className="w-3 h-3 text-slate-600" />
+                    </button>
+
+                    <input
+                      type="number"
+                      min="1"
+                      max={item.maxStock}
+                      value={item.quantity}
+                      onChange={(e) =>
+                        handleDirectQuantityChange(item.batchId, e.target.value, item.maxStock)
+                      }
+                      className="w-14 px-1.5 py-0.5 text-center text-xs font-bold bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => updateQuantity(item.batchId, 1)}
+                      className="p-1 bg-white border border-slate-200 rounded-md hover:bg-slate-100 transition"
+                    >
+                      <Plus className="w-3 h-3 text-slate-600" />
+                    </button>
+                  </div>
+
+                  {/* Quick Select Buttons (+10, 30, 60) */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleDirectQuantityChange(
+                          item.batchId,
+                          (Number(item.quantity) || 0) + 10,
+                          item.maxStock
+                        )
+                      }
+                      className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-semibold rounded transition"
+                    >
+                      +10
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDirectQuantityChange(item.batchId, 30, item.maxStock)}
+                      title="Set 30 Tablets (1 Month)"
+                      className="px-1.5 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[10px] font-semibold rounded transition"
+                    >
+                      30
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDirectQuantityChange(item.batchId, 60, item.maxStock)}
+                      title="Set 60 Tablets (2 Months)"
+                      className="px-1.5 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[10px] font-semibold rounded transition"
+                    >
+                      60
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
