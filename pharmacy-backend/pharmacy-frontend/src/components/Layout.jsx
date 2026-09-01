@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet, NavLink, useNavigate, Navigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import RegisterStaffModal from './RegisterStaffModal';
 import { 
@@ -33,7 +33,7 @@ export default function Layout() {
   ];
 
   // දැනට Login වී සිටින User ගේ Role එකට ගැළපෙන Menus පමණක් Filter කිරීම
-  const visibleNavItems = allNavItems.filter(item => 
+  const visibleNavItems = allNavItems.filter((item) => 
     item.roles.includes(user?.role)
   );
 
@@ -43,13 +43,27 @@ export default function Layout() {
       <aside className="w-64 bg-slate-900 text-white flex flex-col justify-between p-4 flex-shrink-0">
         <div>
           {/* Logo */}
-          <div className="flex items-center gap-3 px-3 py-4 mb-4 border-b border-slate-800">
+          <div className="flex items-center gap-3 px-3 py-3 mb-3 border-b border-slate-800">
             <div className="p-2 bg-emerald-500 rounded-xl shadow-sm">
               <Activity className="w-5 h-5 text-white" />
             </div>
             <div>
               <h1 className="font-bold text-base tracking-wide leading-none">PharmaPOS</h1>
               <span className="text-[10px] text-slate-400">Management System</span>
+            </div>
+          </div>
+
+          {/* User Avatar & Online Status Info (Desktop POS UI Style) */}
+          <div className="flex flex-col items-center py-3 border-b border-slate-800 mb-4 bg-slate-800/30 rounded-xl">
+            <div className="w-14 h-14 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold text-xl border-2 border-slate-600 shadow-inner">
+              {user?.username?.charAt(0).toUpperCase() || 'A'}
+            </div>
+            <p className="font-bold text-sm text-white mt-2">{user?.username || 'admin'}</p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="text-[11px] text-slate-400 font-medium capitalize">
+                Online ({user?.role?.toLowerCase() || 'staff'})
+              </span>
             </div>
           </div>
 
@@ -78,38 +92,27 @@ export default function Layout() {
           </nav>
         </div>
 
-        {/* Sidebar Footer (User Info & Actions) */}
+        {/* Sidebar Footer (Actions & Logout) */}
         <div className="pt-4 border-t border-slate-800 space-y-2">
           {/* Admin Only - Register Staff Button */}
           {user?.role === 'ADMIN' && (
             <button
               onClick={() => setShowStaffModal(true)}
-              className="w-full flex items-center gap-2.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-semibold transition border border-slate-700 shadow-sm mb-2"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-semibold transition border border-slate-700 shadow-sm"
             >
               <UserPlus className="w-4 h-4 text-emerald-400" />
               <span>Register Staff</span>
             </button>
           )}
 
-          {/* User Profile Card */}
-          <div className="flex items-center justify-between p-2.5 bg-slate-800/50 rounded-xl border border-slate-800">
-            <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center font-bold text-xs uppercase">
-                {user?.username?.charAt(0) || 'U'}
-              </div>
-              <div className="truncate">
-                <p className="font-semibold text-xs text-white truncate">{user?.username || 'User'}</p>
-                <p className="text-[10px] text-emerald-400 font-medium">{user?.role || 'STAFF'}</p>
-              </div>
-            </div>
-            <button
-              onClick={handleLogout}
-              title="Logout"
-              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
+          {/* Logout Button */}
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl text-xs font-semibold transition border border-rose-500/20 shadow-sm"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Log Out</span>
+          </button>
         </div>
       </aside>
 
