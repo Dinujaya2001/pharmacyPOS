@@ -11,12 +11,14 @@ import {
   PlusCircle, 
   UserPlus, 
   BarChart3, 
-  RotateCw,
-  Clock,
-  PackageCheck,
-  X,
-  TrendingUp,
-  CreditCard
+  RotateCw, 
+  Clock, 
+  PackageCheck, 
+  X, 
+  TrendingUp, 
+  CreditCard,
+  Printer,
+  Coins
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -39,12 +41,13 @@ export default function Dashboard() {
     todaySuppliers: 0,
     totalInvoices: 0,
     todayInvoices: 0,
-    todaySalesAmount: 0
+    todaySalesAmount: 0,
+    todayGrossProfit: 0
   });
 
   const [weeklyData, setWeeklyData] = useState([]);
 
-  // Date format helper function (Jackson Array, ISO String, Local Timezone Support)
+  // Date format helper function (Jackson Array, String, Local Timezone Support)
   const extractDateStr = (dateVal) => {
     if (!dateVal) return '';
     if (Array.isArray(dateVal)) {
@@ -87,11 +90,25 @@ export default function Dashboard() {
       const expiredCount = batchData.filter(b => b.expiryDate && b.expiryDate < todayStr).length;
       const outOfStockCount = batchData.filter(b => (Number(b.quantity) || 0) <= 0).length;
 
-      // OrderDate සහ netAmount / totalAmount පදනම්ව අද දින Orders සහ Sales ගණනය කිරීම[cite: 1]
+      // Filter Today's Orders[cite: 1]
       const todayOrders = orderData.filter(o => extractDateStr(o.orderDate || o.createdAt) === todayStr);
       const todaySales = todayOrders.reduce((sum, o) => sum + Number(o.netAmount || o.totalAmount || 0), 0);
 
-      // පසුගිය දින 7 ක Sales Trends Graph ගණනය කිරීම
+      // Calculate Today's Gross Profit: (Selling Price - Buying Price) * Qty[cite: 1]
+      let totalCostOfGoodsSold = 0;
+      todayOrders.forEach(order => {
+        if (order.orderItems && Array.isArray(order.orderItems)) {
+          order.orderItems.forEach(item => {
+            const matchedBatch = batchData.find(b => b.id === (item.batchId || item.medicineBatch?.id));
+            const buyingPrice = matchedBatch ? Number(matchedBatch.buyingPrice || 0) : 0;
+            const qty = Number(item.quantity || 0);
+            totalCostOfGoodsSold += (buyingPrice * qty);
+          });
+        }
+      });
+      const todayProfit = Math.max(0, todaySales - totalCostOfGoodsSold);
+
+      // Past 7 Days Revenue Trend
       const days = [];
       for (let i = 6; i >= 0; i--) {
         const targetDate = new Date();
@@ -117,7 +134,8 @@ export default function Dashboard() {
         todayPurchases: batchData.filter(b => extractDateStr(b.createdAt) === todayStr).length,
         totalInvoices: orderData.length,
         todayInvoices: todayOrders.length,
-        todaySalesAmount: todaySales
+        todaySalesAmount: todaySales,
+        todayGrossProfit: todayProfit
       });
     } catch (err) {
       console.error('Failed to load dashboard data', err);
@@ -126,13 +144,17 @@ export default function Dashboard() {
     }
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
   const todayStr = new Date().toLocaleDateString('en-CA');
   const maxWeeklySale = Math.max(...weeklyData.map(d => d.sales), 100);
 
   return (
     <div className="space-y-5 bg-[#f4f6f9] min-h-[calc(100vh-5rem)] -m-6 p-6 font-sans">
       {/* Header Bar */}
-      <div className="flex items-center justify-between bg-white px-5 py-3.5 rounded-2xl border border-slate-200/80 shadow-sm">
+      <div className="flex items-center justify-between bg-white px-5 py-3.5 rounded-2xl border border-slate-200/80 shadow-sm print:hidden">
         <div className="flex items-center gap-2 text-emerald-700 font-bold text-lg">
           <Gauge className="w-5 h-5 text-emerald-600" />
           <span>Dashboard & Analytics Panel</span>
@@ -147,7 +169,7 @@ export default function Dashboard() {
       </div>
 
       {/* 4 KPI Top Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
         <div 
           onClick={() => setActiveReportModal('PURCHASE')}
           className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between cursor-pointer hover:border-emerald-500/60 transition group"
@@ -204,7 +226,7 @@ export default function Dashboard() {
       </div>
 
       {/* 7-Day Revenue Trend Chart & Quick Analytics */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 print:hidden">
         {/* Weekly Revenue Graph */}
         <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
           <div className="flex items-center justify-between mb-4">
@@ -233,13 +255,21 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Payment Methods & Summary */}
+        {/* Settlement & Profit Breakdown */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
           <div>
             <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-3">
-              <CreditCard className="w-4 h-4 text-emerald-600" /> Sales Settlement Breakdown
+              <CreditCard className="w-4 h-4 text-emerald-600" /> Today's Profit & Settlement
             </h3>
-            <div className="space-y-2.5 text-xs pt-1">
+            <div className="space-y-2 text-xs pt-1">
+              <div className="flex justify-between items-center p-2.5 bg-emerald-50/70 border border-emerald-100 rounded-xl">
+                <span className="text-emerald-800 font-bold flex items-center gap-1.5">
+                  <Coins className="w-4 h-4 text-emerald-600" /> Today Gross Profit
+                </span>
+                <span className="font-extrabold text-emerald-700 text-sm">
+                  Rs. {summary.todayGrossProfit.toFixed(2)}
+                </span>
+              </div>
               <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl">
                 <span className="text-slate-600 font-medium">Cash Transactions</span>
                 <span className="font-bold text-slate-800">
@@ -252,23 +282,19 @@ export default function Dashboard() {
                   {orders.filter(o => o.paymentMethod === 'CARD').length}
                 </span>
               </div>
-              <div className="flex justify-between items-center p-2.5 bg-emerald-50/50 rounded-xl">
-                <span className="text-emerald-800 font-semibold">Today Gross Sales</span>
-                <span className="font-bold text-emerald-700">Rs. {summary.todaySalesAmount.toFixed(2)}</span>
-              </div>
             </div>
           </div>
           <button
             onClick={() => setActiveReportModal('TODAYS_SALES')}
             className="w-full mt-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition"
           >
-            View Detailed Sales Audit
+            View & Print Sales Audit
           </button>
         </div>
       </div>
 
       {/* Row 1: Action Tiles */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
         <div 
           onClick={() => navigate('/pos')}
           className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-emerald-500 hover:shadow-md cursor-pointer transition flex flex-col items-center justify-center text-center group"
@@ -315,7 +341,7 @@ export default function Dashboard() {
       </div>
 
       {/* Row 2: Reports Shortcut Tiles */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
         <div 
           onClick={() => setActiveReportModal('TODAYS_SALES')}
           className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-emerald-500 hover:shadow-md cursor-pointer transition flex flex-col items-center justify-center text-center group"
@@ -361,18 +387,20 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ================= REPORTS MODALS ================= */}
+      {/* ================= PRINTABLE REPORTS MODALS ================= */}
       {/* 1. Today's Sales Audit Modal */}
       {activeReportModal === 'TODAYS_SALES' && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 print:p-0 print:m-0 print:bg-transparent print:static">
+          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col print:shadow-none print:w-full print:max-w-none print:h-auto print:overflow-visible print:border-none">
+            
+            {/* Modal Top Bar (Web Screen Only) */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50 print:hidden">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
                   <Clock className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-800 text-base">Daily Sales & Settlement Report</h3>
+                  <h3 className="font-bold text-slate-800 text-base">Daily Sales Audit Report</h3>
                   <p className="text-xs text-slate-400">Date: {todayStr} | Total Orders: {orders.filter(o => extractDateStr(o.orderDate || o.createdAt) === todayStr).length}</p>
                 </div>
               </div>
@@ -381,46 +409,82 @@ export default function Dashboard() {
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-2xl">
-                  <span className="text-[11px] font-semibold text-emerald-700 block">Total Revenue</span>
-                  <span className="text-xl font-bold text-emerald-800">Rs. {summary.todaySalesAmount.toFixed(2)}</span>
-                </div>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl">
-                  <span className="text-[11px] font-semibold text-slate-500 block">Bills Issued</span>
-                  <span className="text-xl font-bold text-slate-800">{orders.filter(o => extractDateStr(o.orderDate || o.createdAt) === todayStr).length}</span>
+            {/* Modal Body / Centered Printable Area */}
+            <div className="p-6 overflow-y-auto space-y-4 print:p-0 print:overflow-visible" id="printable-sales-report">
+              
+              {/* Centered Formal Pharmacy Header */}
+              <div className="border-b-2 border-slate-900 pb-3 text-center space-y-1">
+                <h1 className="text-2xl font-black text-slate-900 tracking-wider uppercase">PHARMAPOS HEALTHCARE</h1>
+                <p className="text-xs font-bold text-slate-700 uppercase tracking-widest">Daily Sales & Settlement Report</p>
+                
+                {/* Meta details with User Name & User Role */}
+                <div className="pt-2 flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-[11px] text-slate-700 font-medium">
+                  <p><span className="font-bold text-slate-900">Date:</span> {todayStr}</p>
+                  <p><span className="font-bold text-slate-900">Time:</span> {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                  <p>
+                    <span className="font-bold text-slate-900">Generated By:</span> {localStorage.getItem('username') || 'tharaka'} 
+                    <span className="ml-1 px-1.5 py-0.2 bg-slate-200 text-slate-800 rounded font-bold uppercase text-[10px]">
+                      ({localStorage.getItem('role') || 'ADMIN'})
+                    </span>
+                  </p>
                 </div>
               </div>
 
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
+              {/* Summary KPIs */}
+              <div className="grid grid-cols-3 gap-3 print:border print:border-slate-300 print:p-2.5 print:rounded-xl">
+                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-center print:border-none print:p-0">
+                  <span className="text-[10px] font-semibold text-slate-500 block uppercase">Total Revenue</span>
+                  <span className="text-base font-bold text-slate-900">Rs. {summary.todaySalesAmount.toFixed(2)}</span>
+                </div>
+                <div className="p-2.5 bg-emerald-50/70 border border-emerald-100 rounded-xl text-center print:border-none print:p-0">
+                  <span className="text-[10px] font-semibold text-emerald-800 block uppercase">Gross Profit</span>
+                  <span className="text-base font-bold text-emerald-700">Rs. {summary.todayGrossProfit.toFixed(2)}</span>
+                </div>
+                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-center print:border-none print:p-0">
+                  <span className="text-[10px] font-semibold text-slate-500 block uppercase">Total Invoices</span>
+                  <span className="text-base font-bold text-slate-900">{orders.filter(o => extractDateStr(o.orderDate || o.createdAt) === todayStr).length}</span>
+                </div>
+              </div>
+
+              {/* Clean Table Layout */}
+              <div className="border border-slate-300 rounded-xl overflow-hidden print:border-slate-800">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-600 font-semibold">
+                  <thead className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300 print:bg-slate-200">
                     <tr>
+                      <th className="p-2.5 text-center w-12">#</th>
                       <th className="p-2.5">Invoice No</th>
                       <th className="p-2.5">Time</th>
-                      <th className="p-2.5">Payment</th>
+                      <th className="p-2.5">Cashier / Staff</th>
+                      <th className="p-2.5 text-center">Payment</th>
                       <th className="p-2.5 text-right">Discount</th>
                       <th className="p-2.5 text-right">Net Amount</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {orders.filter(o => extractDateStr(o.orderDate || o.createdAt) === todayStr).map((o) => (
+                  <tbody className="divide-y divide-slate-200">
+                    {orders.filter(o => extractDateStr(o.orderDate || o.createdAt) === todayStr).map((o, index) => (
                       <tr key={o.id} className="hover:bg-slate-50">
-                        <td className="p-2.5 font-bold text-slate-800">{o.invoiceNumber || `#ORD-${o.id}`}</td>
-                        <td className="p-2.5 text-slate-500">
+                        <td className="p-2.5 text-center text-slate-500 font-medium">{index + 1}</td>
+                        <td className="p-2.5 font-mono font-bold text-slate-900">{o.invoiceNumber || `#ORD-${o.id}`}</td>
+                        <td className="p-2.5 text-slate-700">
                           {new Date(o.orderDate || o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </td>
-                        <td className="p-2.5">
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded font-semibold text-[10px]">{o.paymentMethod || 'CASH'}</span>
+                        <td className="p-2.5 font-medium text-slate-800">
+                          {o.cashier?.username || localStorage.getItem('username') || 'tharaka'}
                         </td>
-                        <td className="p-2.5 text-right text-slate-500">Rs. {Number(o.discountAmount || 0).toFixed(2)}</td>
-                        <td className="p-2.5 text-right font-bold text-slate-800">Rs. {Number(o.netAmount || o.totalAmount || 0).toFixed(2)}</td>
+                        <td className="p-2.5 text-center">
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-800 border border-slate-300 rounded font-semibold text-[10px]">
+                            {o.paymentMethod || 'CASH'}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-right text-slate-600">Rs. {Number(o.discountAmount || 0).toFixed(2)}</td>
+                        <td className="p-2.5 text-right font-bold text-slate-900">
+                          Rs. {Number(o.netAmount || o.totalAmount || 0).toFixed(2)}
+                        </td>
                       </tr>
                     ))}
                     {orders.filter(o => extractDateStr(o.orderDate || o.createdAt) === todayStr).length === 0 && (
                       <tr>
-                        <td colSpan="5" className="p-6 text-center text-slate-400">
+                        <td colSpan="7" className="p-6 text-center text-slate-500 font-medium">
                           No sales recorded yet for today.
                         </td>
                       </tr>
@@ -428,40 +492,61 @@ export default function Dashboard() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Centered Signatures & Footer Note */}
+              <div className="pt-8 pb-4 flex justify-between text-xs text-slate-800 hidden print:flex">
+                <div className="border-t border-slate-400 pt-1 text-center w-40">
+                  <p className="font-semibold">Prepared By</p>
+                  <p className="text-[10px] text-slate-500">Cashier Signature</p>
+                </div>
+                <div className="border-t border-slate-400 pt-1 text-center w-40">
+                  <p className="font-semibold">Verified By</p>
+                  <p className="text-[10px] text-slate-500">Manager Signature</p>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 text-center text-[10px] text-slate-400 hidden print:block">
+                *** End of Official Daily Sales Audit - PharmaPOS System ***
+              </div>
             </div>
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
-              <button onClick={() => { setActiveReportModal(null); navigate('/pos'); }} className="text-xs text-emerald-600 font-bold hover:underline">
-                Go to POS Cashier →
+            {/* Modal Bottom Bar (Web Screen Only) */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center print:hidden">
+              <button
+                onClick={handlePrint}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow"
+              >
+                <Printer className="w-4 h-4" /> Print Clean Report
               </button>
               <button onClick={() => setActiveReportModal(null)} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold">
-                Close Report
+                Close
               </button>
             </div>
+
           </div>
         </div>
       )}
 
       {/* 2. Stock & Expiry Report Modal */}
       {activeReportModal === 'STOCK' && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 print:p-0 print:bg-white print:static">
+          <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col print:max-w-none print:shadow-none print:h-auto print:overflow-visible">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl print:hidden">
                   <PackageCheck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-800 text-base">Live Inventory & Stock Health Report</h3>
+                  <h3 className="font-bold text-slate-800 text-base">PharmaPOS - Stock & Inventory Audit Report</h3>
                   <p className="text-xs text-slate-400">Total Medicines: {medicines.length} | Batches Tracked: {batches.length}</p>
                 </div>
               </div>
-              <button onClick={() => setActiveReportModal(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
+              <button onClick={() => setActiveReportModal(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg print:hidden">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto space-y-3">
+            <div className="p-5 overflow-y-auto space-y-3 print:overflow-visible">
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-100 text-slate-600 font-semibold">
@@ -502,12 +587,15 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
-              <button onClick={() => { setActiveReportModal(null); navigate('/inventory'); }} className="text-xs text-emerald-600 font-bold hover:underline">
-                Go to Inventory Master →
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center print:hidden">
+              <button
+                onClick={handlePrint}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow"
+              >
+                <Printer className="w-4 h-4" /> Print Stock Audit
               </button>
               <button onClick={() => setActiveReportModal(null)} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold">
-                Close Report
+                Close
               </button>
             </div>
           </div>
@@ -516,24 +604,24 @@ export default function Dashboard() {
 
       {/* 3. Suppliers Report Modal */}
       {activeReportModal === 'SUPPLIERS' && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 print:p-0 print:bg-white print:static">
+          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col print:max-w-none print:shadow-none print:h-auto print:overflow-visible">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl print:hidden">
                   <Truck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-800 text-base">Wholesale Suppliers Directory</h3>
+                  <h3 className="font-bold text-slate-800 text-base">PharmaPOS - Registered Suppliers Directory</h3>
                   <p className="text-xs text-slate-400">Total Suppliers: {suppliers.length}</p>
                 </div>
               </div>
-              <button onClick={() => setActiveReportModal(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
+              <button onClick={() => setActiveReportModal(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg print:hidden">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto">
+            <div className="p-5 overflow-y-auto print:overflow-visible">
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-100 text-slate-600 font-semibold">
@@ -560,12 +648,15 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
-              <button onClick={() => { setActiveReportModal(null); navigate('/suppliers'); }} className="text-xs text-emerald-600 font-bold hover:underline">
-                Manage Suppliers & GRN →
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center print:hidden">
+              <button
+                onClick={handlePrint}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow"
+              >
+                <Printer className="w-4 h-4" /> Print Suppliers List
               </button>
               <button onClick={() => setActiveReportModal(null)} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold">
-                Close Report
+                Close
               </button>
             </div>
           </div>
@@ -574,31 +665,31 @@ export default function Dashboard() {
 
       {/* 4. Purchase & GRN Margins Modal */}
       {activeReportModal === 'PURCHASE' && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 print:p-0 print:bg-white print:static">
+          <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col print:max-w-none print:shadow-none print:h-auto print:overflow-visible">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl print:hidden">
                   <BarChart3 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-800 text-base">Inward Purchases & Margins Audit</h3>
-                  <p className="text-xs text-slate-400">Total Batches Purchased: {batches.length}</p>
+                  <h3 className="font-bold text-slate-800 text-base">PharmaPOS - Inward Purchases & Margin Audit</h3>
+                  <p className="text-xs text-slate-400">Total Batches: {batches.length}</p>
                 </div>
               </div>
-              <button onClick={() => setActiveReportModal(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
+              <button onClick={() => setActiveReportModal(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg print:hidden">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto">
+            <div className="p-5 overflow-y-auto print:overflow-visible">
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-100 text-slate-600 font-semibold">
                     <tr>
                       <th className="p-2.5">Medicine</th>
                       <th className="p-2.5">Batch</th>
-                      <th className="p-2.5 text-right">Inward Qty</th>
+                      <th className="p-2.5 text-right">Qty</th>
                       <th className="p-2.5 text-right">Buying (Rs)</th>
                       <th className="p-2.5 text-right">Selling (Rs)</th>
                       <th className="p-2.5 text-right">Gross Margin</th>
@@ -627,12 +718,15 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
-              <button onClick={() => { setActiveReportModal(null); navigate('/suppliers'); }} className="text-xs text-emerald-600 font-bold hover:underline">
-                Enter Inward Batch →
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center print:hidden">
+              <button
+                onClick={handlePrint}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow"
+              >
+                <Printer className="w-4 h-4" /> Print Purchase Report
               </button>
               <button onClick={() => setActiveReportModal(null)} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold">
-                Close Report
+                Close
               </button>
             </div>
           </div>
