@@ -13,12 +13,22 @@ import {
   BarChart3, 
   RotateCw,
   Clock,
-  PackageCheck
+  PackageCheck,
+  X,
+  TrendingUp,
+  CreditCard
 } from 'lucide-react';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [medicines, setMedicines] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [batches, setBatches] = useState([]);
+  const [orders, setOrders] = useState([]);
+
+  const [activeReportModal, setActiveReportModal] = useState(null);
+
   const [summary, setSummary] = useState({
     totalPurchases: 0,
     todayPurchases: 0,
@@ -29,8 +39,24 @@ export default function Dashboard() {
     todaySuppliers: 0,
     totalInvoices: 0,
     todayInvoices: 0,
-    incompletePayments: 0
+    todaySalesAmount: 0
   });
+
+  const [weeklyData, setWeeklyData] = useState([]);
+
+  // Date format helper function (Jackson Array, ISO String, Local Timezone Support)
+  const extractDateStr = (dateVal) => {
+    if (!dateVal) return '';
+    if (Array.isArray(dateVal)) {
+      const y = dateVal[0];
+      const m = String(dateVal[1]).padStart(2, '0');
+      const d = String(dateVal[2]).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-CA');
+  };
 
   useEffect(() => {
     fetchDashboardData();
@@ -39,68 +65,105 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const [medRes, supRes, batchRes] = await Promise.all([
+      const [medRes, supRes, batchRes, orderRes] = await Promise.all([
         axiosClient.get('/inventory/medicines').catch(() => ({ data: [] })),
         axiosClient.get('/suppliers').catch(() => ({ data: [] })),
-        axiosClient.get('/inventory/batches').catch(() => ({ data: [] }))
+        axiosClient.get('/inventory/batches').catch(() => ({ data: [] })),
+        axiosClient.get('/orders').catch(() => ({ data: [] }))
       ]);
 
-      const medicines = medRes.data || [];
-      const suppliers = supRes.data || [];
-      const batches = batchRes.data || [];
+      const medData = medRes.data || [];
+      const supData = supRes.data || [];
+      const batchData = batchRes.data || [];
+      const orderData = orderRes.data || [];
 
-      // Expired & Out of Stock ගණනය කිරීම
-      const todayStr = new Date().toISOString().split('T')[0];
-      const expiredCount = batches.filter(b => b.expiryDate && b.expiryDate < todayStr).length;
-      const outOfStockCount = batches.filter(b => b.quantity <= 0).length;
+      setMedicines(medData);
+      setSuppliers(supData);
+      setBatches(batchData);
+      setOrders(orderData);
 
-      setSummary(prev => ({
-        ...prev,
-        totalMedicines: medicines.length,
+      const todayStr = new Date().toLocaleDateString('en-CA');
+
+      const expiredCount = batchData.filter(b => b.expiryDate && b.expiryDate < todayStr).length;
+      const outOfStockCount = batchData.filter(b => (Number(b.quantity) || 0) <= 0).length;
+
+      // OrderDate සහ netAmount / totalAmount පදනම්ව අද දින Orders සහ Sales ගණනය කිරීම[cite: 1]
+      const todayOrders = orderData.filter(o => extractDateStr(o.orderDate || o.createdAt) === todayStr);
+      const todaySales = todayOrders.reduce((sum, o) => sum + Number(o.netAmount || o.totalAmount || 0), 0);
+
+      // පසුගිය දින 7 ක Sales Trends Graph ගණනය කිරීම
+      const days = [];
+      for (let i = 6; i >= 0; i--) {
+        const targetDate = new Date();
+        targetDate.setDate(targetDate.getDate() - i);
+        const targetStr = targetDate.toLocaleDateString('en-CA');
+        const dayName = targetDate.toLocaleDateString('en-US', { weekday: 'short' });
+
+        const daySales = orderData
+          .filter(o => extractDateStr(o.orderDate || o.createdAt) === targetStr)
+          .reduce((sum, o) => sum + Number(o.netAmount || o.totalAmount || 0), 0);
+
+        days.push({ day: dayName, date: targetStr, sales: daySales });
+      }
+      setWeeklyData(days);
+
+      setSummary({
+        totalMedicines: medData.length,
         outOfStock: outOfStockCount,
         expired: expiredCount,
-        totalSuppliers: suppliers.length,
-        totalPurchases: batches.length,
-        totalInvoices: 0
-      }));
+        totalSuppliers: supData.length,
+        todaySuppliers: 0,
+        totalPurchases: batchData.length,
+        todayPurchases: batchData.filter(b => extractDateStr(b.createdAt) === todayStr).length,
+        totalInvoices: orderData.length,
+        todayInvoices: todayOrders.length,
+        todaySalesAmount: todaySales
+      });
     } catch (err) {
-      console.error('Failed to load dashboard metrics', err);
+      console.error('Failed to load dashboard data', err);
     } finally {
       setLoading(false);
     }
   };
 
+  const todayStr = new Date().toLocaleDateString('en-CA');
+  const maxWeeklySale = Math.max(...weeklyData.map(d => d.sales), 100);
+
   return (
     <div className="space-y-5 bg-[#f4f6f9] min-h-[calc(100vh-5rem)] -m-6 p-6 font-sans">
-      {/* Top Header Bar */}
-      <div className="flex items-center justify-between bg-white px-5 py-3 rounded-xl border border-slate-200 shadow-sm">
+      {/* Header Bar */}
+      <div className="flex items-center justify-between bg-white px-5 py-3.5 rounded-2xl border border-slate-200/80 shadow-sm">
         <div className="flex items-center gap-2 text-emerald-700 font-bold text-lg">
-          <Gauge className="w-5 h-5" />
-          <span>Dashboard Panel</span>
+          <Gauge className="w-5 h-5 text-emerald-600" />
+          <span>Dashboard & Analytics Panel</span>
         </div>
         <button
           onClick={fetchDashboardData}
-          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-600 transition font-medium"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 text-xs text-slate-600 rounded-xl border border-slate-200 transition font-semibold"
         >
           <span>Updating</span>
-          <RotateCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <RotateCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-emerald-600' : ''}`} />
         </button>
       </div>
 
-      {/* 4 Top KPI Statistic Cards */}
+      {/* 4 KPI Top Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Purchases */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div 
+          onClick={() => setActiveReportModal('PURCHASE')}
+          className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between cursor-pointer hover:border-emerald-500/60 transition group"
+        >
           <div>
             <h2 className="text-2xl font-bold text-slate-800 leading-none">{summary.totalPurchases}</h2>
             <p className="text-xs font-semibold text-slate-600 mt-1">Total Purchases</p>
             <p className="text-[11px] text-slate-400 mt-2">Today <span className="text-rose-500 font-bold">{summary.todayPurchases}</span></p>
           </div>
-          <ShoppingCart className="w-12 h-12 text-slate-400 stroke-1" />
+          <ShoppingCart className="w-12 h-12 text-slate-300 group-hover:text-emerald-500 transition stroke-1" />
         </div>
 
-        {/* Total Medicine */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div 
+          onClick={() => setActiveReportModal('STOCK')}
+          className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between cursor-pointer hover:border-emerald-500/60 transition group"
+        >
           <div>
             <h2 className="text-2xl font-bold text-slate-800 leading-none">{summary.totalMedicines}</h2>
             <p className="text-xs font-semibold text-slate-600 mt-1">Total Medicine</p>
@@ -109,134 +172,472 @@ export default function Dashboard() {
               <p>Expired <span className="text-rose-500 font-bold">{summary.expired}</span></p>
             </div>
           </div>
-          <Pill className="w-12 h-12 text-slate-400 stroke-1" />
+          <Pill className="w-12 h-12 text-slate-300 group-hover:text-emerald-500 transition stroke-1" />
         </div>
 
-        {/* Total Suppliers */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div 
+          onClick={() => setActiveReportModal('SUPPLIERS')}
+          className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between cursor-pointer hover:border-emerald-500/60 transition group"
+        >
           <div>
             <h2 className="text-2xl font-bold text-slate-800 leading-none">{summary.totalSuppliers}</h2>
             <p className="text-xs font-semibold text-slate-600 mt-1">Total Suppliers</p>
             <p className="text-[11px] text-slate-400 mt-2">Today <span className="text-rose-500 font-bold">{summary.todaySuppliers}</span></p>
           </div>
-          <Truck className="w-12 h-12 text-slate-400 stroke-1" />
+          <Truck className="w-12 h-12 text-slate-300 group-hover:text-emerald-500 transition stroke-1" />
         </div>
 
-        {/* Total Invoices */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div 
+          onClick={() => setActiveReportModal('TODAYS_SALES')}
+          className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between cursor-pointer hover:border-emerald-500/60 transition group"
+        >
           <div>
             <h2 className="text-2xl font-bold text-slate-800 leading-none">{summary.totalInvoices}</h2>
             <p className="text-xs font-semibold text-slate-600 mt-1">Total Invoices</p>
             <div className="text-[11px] text-slate-400 mt-1.5 space-y-0.5">
               <p>Today <span className="text-rose-500 font-bold">{summary.todayInvoices}</span></p>
-              <p>Incomplete Payments <span className="text-rose-500 font-bold">{summary.incompletePayments}</span></p>
+              <p>Sales: <span className="text-emerald-600 font-bold">Rs. {summary.todaySalesAmount.toFixed(2)}</span></p>
             </div>
           </div>
-          <FileText className="w-12 h-12 text-slate-400 stroke-1" />
+          <FileText className="w-12 h-12 text-slate-300 group-hover:text-emerald-500 transition stroke-1" />
+        </div>
+      </div>
+
+      {/* 7-Day Revenue Trend Chart & Quick Analytics */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Weekly Revenue Graph */}
+        <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-emerald-600" /> Past 7 Days Revenue Trend (Rs)
+            </h3>
+            <span className="text-[11px] text-slate-400">Live Sales Data</span>
+          </div>
+
+          <div className="h-44 flex items-end justify-between gap-3 pt-4 px-2 border-b border-slate-100">
+            {weeklyData.map((w, idx) => {
+              const heightPercent = Math.max(12, Math.round((w.sales / maxWeeklySale) * 100));
+              return (
+                <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 group">
+                  <div className="text-[10px] font-bold text-slate-600 opacity-0 group-hover:opacity-100 transition">
+                    Rs. {w.sales.toFixed(0)}
+                  </div>
+                  <div
+                    style={{ height: `${heightPercent}%` }}
+                    className="w-full max-w-[42px] bg-emerald-500 hover:bg-emerald-600 rounded-t-lg transition-all duration-300 shadow-sm"
+                  />
+                  <span className="text-[11px] font-semibold text-slate-500 mt-1">{w.day}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Payment Methods & Summary */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-3">
+              <CreditCard className="w-4 h-4 text-emerald-600" /> Sales Settlement Breakdown
+            </h3>
+            <div className="space-y-2.5 text-xs pt-1">
+              <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl">
+                <span className="text-slate-600 font-medium">Cash Transactions</span>
+                <span className="font-bold text-slate-800">
+                  {orders.filter(o => o.paymentMethod === 'CASH').length}
+                </span>
+              </div>
+              <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl">
+                <span className="text-slate-600 font-medium">Card Transactions</span>
+                <span className="font-bold text-slate-800">
+                  {orders.filter(o => o.paymentMethod === 'CARD').length}
+                </span>
+              </div>
+              <div className="flex justify-between items-center p-2.5 bg-emerald-50/50 rounded-xl">
+                <span className="text-emerald-800 font-semibold">Today Gross Sales</span>
+                <span className="font-bold text-emerald-700">Rs. {summary.todaySalesAmount.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveReportModal('TODAYS_SALES')}
+            className="w-full mt-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition"
+          >
+            View Detailed Sales Audit
+          </button>
         </div>
       </div>
 
       {/* Row 1: Action Tiles */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* New POS Sale */}
         <div 
           onClick={() => navigate('/pos')}
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-emerald-500 cursor-pointer transition flex flex-col items-center justify-center text-center group"
+          className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-emerald-500 hover:shadow-md cursor-pointer transition flex flex-col items-center justify-center text-center group"
         >
-          <Receipt className="w-10 h-10 text-slate-600 mb-2 group-hover:text-emerald-600 transition" />
-          <div className="border border-emerald-600 px-3 py-1 rounded text-emerald-700 font-semibold text-xs mb-1">
+          <Receipt className="w-10 h-10 text-slate-500 mb-2 group-hover:text-emerald-600 transition" />
+          <div className="border border-emerald-600 px-3 py-1 rounded-lg text-emerald-700 font-semibold text-xs mb-1 group-hover:bg-emerald-50 transition">
             New POS Sale
           </div>
-          <span className="text-[10px] text-slate-400">New Point of Sale</span>
+          <span className="text-[10px] text-slate-400 font-medium">Point of Sale Cashier</span>
         </div>
 
-        {/* Prescriptions / Invoices */}
         <div 
           onClick={() => navigate('/prescriptions')}
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-emerald-500 cursor-pointer transition flex flex-col items-center justify-center text-center group"
+          className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-emerald-500 hover:shadow-md cursor-pointer transition flex flex-col items-center justify-center text-center group"
         >
-          <FileText className="w-10 h-10 text-slate-600 mb-2 group-hover:text-emerald-600 transition" />
-          <div className="border border-emerald-600 px-3 py-1 rounded text-emerald-700 font-semibold text-xs mb-1">
+          <FileText className="w-10 h-10 text-slate-500 mb-2 group-hover:text-emerald-600 transition" />
+          <div className="border border-emerald-600 px-3 py-1 rounded-lg text-emerald-700 font-semibold text-xs mb-1 group-hover:bg-emerald-50 transition">
             Prescriptions
           </div>
-          <span className="text-[10px] text-slate-400">Review Customer Prescriptions</span>
+          <span className="text-[10px] text-slate-400 font-medium">Review Online RX Orders</span>
         </div>
 
-        {/* New Medicine */}
         <div 
-          onClick={() => navigate('/inventory')}
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-emerald-500 cursor-pointer transition flex flex-col items-center justify-center text-center group"
+          onClick={() => navigate('/inventory', { state: { openAddModal: true } })}
+          className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-emerald-500 hover:shadow-md cursor-pointer transition flex flex-col items-center justify-center text-center group"
         >
-          <PlusCircle className="w-10 h-10 text-slate-600 mb-2 group-hover:text-emerald-600 transition" />
-          <div className="border border-emerald-600 px-3 py-1 rounded text-emerald-700 font-semibold text-xs mb-1">
+          <PlusCircle className="w-10 h-10 text-slate-500 mb-2 group-hover:text-emerald-600 transition" />
+          <div className="border border-emerald-600 px-3 py-1 rounded-lg text-emerald-700 font-semibold text-xs mb-1 group-hover:bg-emerald-50 transition">
             New Medicine
           </div>
-          <span className="text-[10px] text-slate-400">Add a new Medicine to the System</span>
+          <span className="text-[10px] text-slate-400 font-medium">Add Medicine to Master</span>
         </div>
 
-        {/* Suppliers & GRN */}
         <div 
-          onClick={() => navigate('/suppliers')}
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-emerald-500 cursor-pointer transition flex flex-col items-center justify-center text-center group"
+          onClick={() => navigate('/suppliers', { state: { openGrnModal: true } })}
+          className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-emerald-500 hover:shadow-md cursor-pointer transition flex flex-col items-center justify-center text-center group"
         >
-          <UserPlus className="w-10 h-10 text-slate-600 mb-2 group-hover:text-emerald-600 transition" />
-          <div className="border border-emerald-600 px-3 py-1 rounded text-emerald-700 font-semibold text-xs mb-1">
+          <UserPlus className="w-10 h-10 text-slate-500 mb-2 group-hover:text-emerald-600 transition" />
+          <div className="border border-emerald-600 px-3 py-1 rounded-lg text-emerald-700 font-semibold text-xs mb-1 group-hover:bg-emerald-50 transition">
             Suppliers & GRN
           </div>
-          <span className="text-[10px] text-slate-400">Receive Stock & Add Suppliers</span>
+          <span className="text-[10px] text-slate-400 font-medium">Inward Stock Batches</span>
         </div>
       </div>
 
-      {/* Row 2: Report Shortcut Tiles */}
+      {/* Row 2: Reports Shortcut Tiles */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Today's Report */}
         <div 
-          onClick={() => navigate('/pos')}
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-emerald-500 cursor-pointer transition flex flex-col items-center justify-center text-center group"
+          onClick={() => setActiveReportModal('TODAYS_SALES')}
+          className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-emerald-500 hover:shadow-md cursor-pointer transition flex flex-col items-center justify-center text-center group"
         >
-          <Clock className="w-10 h-10 text-slate-600 mb-2 group-hover:text-emerald-600 transition" />
-          <div className="border border-emerald-600 px-3 py-1 rounded text-emerald-700 font-semibold text-xs mb-1">
+          <Clock className="w-10 h-10 text-slate-500 mb-2 group-hover:text-emerald-600 transition" />
+          <div className="border border-emerald-600 px-3 py-1 rounded-lg text-emerald-700 font-semibold text-xs mb-1 group-hover:bg-emerald-50 transition">
             Todays Sales
           </div>
-          <span className="text-[10px] text-slate-400">Everything done today POS + Invoices</span>
+          <span className="text-[10px] text-slate-400 font-medium">Daily POS + Invoices Record</span>
         </div>
 
-        {/* Suppliers Report */}
         <div 
-          onClick={() => navigate('/suppliers')}
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-emerald-500 cursor-pointer transition flex flex-col items-center justify-center text-center group"
+          onClick={() => setActiveReportModal('SUPPLIERS')}
+          className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-emerald-500 hover:shadow-md cursor-pointer transition flex flex-col items-center justify-center text-center group"
         >
-          <Truck className="w-10 h-10 text-slate-600 mb-2 group-hover:text-emerald-600 transition" />
-          <div className="border border-emerald-600 px-3 py-1 rounded text-emerald-700 font-semibold text-xs mb-1">
+          <Truck className="w-10 h-10 text-slate-500 mb-2 group-hover:text-emerald-600 transition" />
+          <div className="border border-emerald-600 px-3 py-1 rounded-lg text-emerald-700 font-semibold text-xs mb-1 group-hover:bg-emerald-50 transition">
             Suppliers Report
           </div>
-          <span className="text-[10px] text-slate-400">All registered suppliers details</span>
+          <span className="text-[10px] text-slate-400 font-medium">Vendor contacts & statistics</span>
         </div>
 
-        {/* Stock Report */}
         <div 
-          onClick={() => navigate('/inventory')}
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-emerald-500 cursor-pointer transition flex flex-col items-center justify-center text-center group"
+          onClick={() => setActiveReportModal('STOCK')}
+          className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-emerald-500 hover:shadow-md cursor-pointer transition flex flex-col items-center justify-center text-center group"
         >
-          <PackageCheck className="w-10 h-10 text-slate-600 mb-2 group-hover:text-emerald-600 transition" />
-          <div className="border border-emerald-600 px-3 py-1 rounded text-emerald-700 font-semibold text-xs mb-1">
+          <PackageCheck className="w-10 h-10 text-slate-500 mb-2 group-hover:text-emerald-600 transition" />
+          <div className="border border-emerald-600 px-3 py-1 rounded-lg text-emerald-700 font-semibold text-xs mb-1 group-hover:bg-emerald-50 transition">
             Stock Report
           </div>
-          <span className="text-[10px] text-slate-400">Stock analysis and low alerts</span>
+          <span className="text-[10px] text-slate-400 font-medium">Inventory & Expired audits</span>
         </div>
 
-        {/* Purchase Report */}
         <div 
-          onClick={() => navigate('/suppliers')}
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-emerald-500 cursor-pointer transition flex flex-col items-center justify-center text-center group"
+          onClick={() => setActiveReportModal('PURCHASE')}
+          className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-emerald-500 hover:shadow-md cursor-pointer transition flex flex-col items-center justify-center text-center group"
         >
-          <BarChart3 className="w-10 h-10 text-slate-600 mb-2 group-hover:text-emerald-600 transition" />
-          <div className="border border-emerald-600 px-3 py-1 rounded text-emerald-700 font-semibold text-xs mb-1">
+          <BarChart3 className="w-10 h-10 text-slate-500 mb-2 group-hover:text-emerald-600 transition" />
+          <div className="border border-emerald-600 px-3 py-1 rounded-lg text-emerald-700 font-semibold text-xs mb-1 group-hover:bg-emerald-50 transition">
             Purchase Report
           </div>
-          <span className="text-[10px] text-slate-400">All purchases and inward stock</span>
+          <span className="text-[10px] text-slate-400 font-medium">GRN cost & Margin analysis</span>
         </div>
       </div>
+
+      {/* ================= REPORTS MODALS ================= */}
+      {/* 1. Today's Sales Audit Modal */}
+      {activeReportModal === 'TODAYS_SALES' && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">Daily Sales & Settlement Report</h3>
+                  <p className="text-xs text-slate-400">Date: {todayStr} | Total Orders: {orders.filter(o => extractDateStr(o.orderDate || o.createdAt) === todayStr).length}</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveReportModal(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-2xl">
+                  <span className="text-[11px] font-semibold text-emerald-700 block">Total Revenue</span>
+                  <span className="text-xl font-bold text-emerald-800">Rs. {summary.todaySalesAmount.toFixed(2)}</span>
+                </div>
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl">
+                  <span className="text-[11px] font-semibold text-slate-500 block">Bills Issued</span>
+                  <span className="text-xl font-bold text-slate-800">{orders.filter(o => extractDateStr(o.orderDate || o.createdAt) === todayStr).length}</span>
+                </div>
+              </div>
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100 text-slate-600 font-semibold">
+                    <tr>
+                      <th className="p-2.5">Invoice No</th>
+                      <th className="p-2.5">Time</th>
+                      <th className="p-2.5">Payment</th>
+                      <th className="p-2.5 text-right">Discount</th>
+                      <th className="p-2.5 text-right">Net Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {orders.filter(o => extractDateStr(o.orderDate || o.createdAt) === todayStr).map((o) => (
+                      <tr key={o.id} className="hover:bg-slate-50">
+                        <td className="p-2.5 font-bold text-slate-800">{o.invoiceNumber || `#ORD-${o.id}`}</td>
+                        <td className="p-2.5 text-slate-500">
+                          {new Date(o.orderDate || o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="p-2.5">
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded font-semibold text-[10px]">{o.paymentMethod || 'CASH'}</span>
+                        </td>
+                        <td className="p-2.5 text-right text-slate-500">Rs. {Number(o.discountAmount || 0).toFixed(2)}</td>
+                        <td className="p-2.5 text-right font-bold text-slate-800">Rs. {Number(o.netAmount || o.totalAmount || 0).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                    {orders.filter(o => extractDateStr(o.orderDate || o.createdAt) === todayStr).length === 0 && (
+                      <tr>
+                        <td colSpan="5" className="p-6 text-center text-slate-400">
+                          No sales recorded yet for today.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
+              <button onClick={() => { setActiveReportModal(null); navigate('/pos'); }} className="text-xs text-emerald-600 font-bold hover:underline">
+                Go to POS Cashier →
+              </button>
+              <button onClick={() => setActiveReportModal(null)} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold">
+                Close Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Stock & Expiry Report Modal */}
+      {activeReportModal === 'STOCK' && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                  <PackageCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">Live Inventory & Stock Health Report</h3>
+                  <p className="text-xs text-slate-400">Total Medicines: {medicines.length} | Batches Tracked: {batches.length}</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveReportModal(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-3">
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100 text-slate-600 font-semibold">
+                    <tr>
+                      <th className="p-2.5">Medicine Name</th>
+                      <th className="p-2.5">Batch No</th>
+                      <th className="p-2.5">Expiry Date</th>
+                      <th className="p-2.5 text-right">Stock (Units)</th>
+                      <th className="p-2.5 text-right">Selling Price</th>
+                      <th className="p-2.5 text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {batches.map((b) => {
+                      const isExpired = b.expiryDate && b.expiryDate < todayStr;
+                      const isOutOfStock = (Number(b.quantity) || 0) <= 0;
+                      return (
+                        <tr key={b.id} className="hover:bg-slate-50">
+                          <td className="p-2.5 font-bold text-slate-800">{b.medicine?.name}</td>
+                          <td className="p-2.5 font-mono text-slate-600">{b.batchNumber}</td>
+                          <td className="p-2.5 text-slate-600">{b.expiryDate}</td>
+                          <td className="p-2.5 text-right font-bold text-slate-800">{b.quantity}</td>
+                          <td className="p-2.5 text-right text-emerald-700 font-bold">Rs. {Number(b.sellingPrice).toFixed(2)}</td>
+                          <td className="p-2.5 text-center">
+                            {isOutOfStock ? (
+                              <span className="px-2 py-0.5 bg-rose-50 text-rose-600 rounded text-[10px] font-bold">Out of Stock</span>
+                            ) : isExpired ? (
+                              <span className="px-2 py-0.5 bg-amber-50 text-amber-600 rounded text-[10px] font-bold">Expired</span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded text-[10px] font-bold">In Stock</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
+              <button onClick={() => { setActiveReportModal(null); navigate('/inventory'); }} className="text-xs text-emerald-600 font-bold hover:underline">
+                Go to Inventory Master →
+              </button>
+              <button onClick={() => setActiveReportModal(null)} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold">
+                Close Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Suppliers Report Modal */}
+      {activeReportModal === 'SUPPLIERS' && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                  <Truck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">Wholesale Suppliers Directory</h3>
+                  <p className="text-xs text-slate-400">Total Suppliers: {suppliers.length}</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveReportModal(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto">
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100 text-slate-600 font-semibold">
+                    <tr>
+                      <th className="p-2.5">Supplier Name</th>
+                      <th className="p-2.5">Contact Person</th>
+                      <th className="p-2.5">Phone</th>
+                      <th className="p-2.5">Email</th>
+                      <th className="p-2.5">Address</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {suppliers.map((s) => (
+                      <tr key={s.id} className="hover:bg-slate-50">
+                        <td className="p-2.5 font-bold text-slate-800">{s.name}</td>
+                        <td className="p-2.5 text-slate-600">{s.contactPerson || '-'}</td>
+                        <td className="p-2.5 text-slate-700 font-medium">{s.phone}</td>
+                        <td className="p-2.5 text-slate-500">{s.email || '-'}</td>
+                        <td className="p-2.5 text-slate-500">{s.address || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
+              <button onClick={() => { setActiveReportModal(null); navigate('/suppliers'); }} className="text-xs text-emerald-600 font-bold hover:underline">
+                Manage Suppliers & GRN →
+              </button>
+              <button onClick={() => setActiveReportModal(null)} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold">
+                Close Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Purchase & GRN Margins Modal */}
+      {activeReportModal === 'PURCHASE' && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                  <BarChart3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">Inward Purchases & Margins Audit</h3>
+                  <p className="text-xs text-slate-400">Total Batches Purchased: {batches.length}</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveReportModal(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto">
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100 text-slate-600 font-semibold">
+                    <tr>
+                      <th className="p-2.5">Medicine</th>
+                      <th className="p-2.5">Batch</th>
+                      <th className="p-2.5 text-right">Inward Qty</th>
+                      <th className="p-2.5 text-right">Buying (Rs)</th>
+                      <th className="p-2.5 text-right">Selling (Rs)</th>
+                      <th className="p-2.5 text-right">Gross Margin</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {batches.map((b) => {
+                      const buy = Number(b.buyingPrice) || 0;
+                      const sell = Number(b.sellingPrice) || 0;
+                      const margin = sell - buy;
+                      return (
+                        <tr key={b.id} className="hover:bg-slate-50">
+                          <td className="p-2.5 font-bold text-slate-800">{b.medicine?.name}</td>
+                          <td className="p-2.5 font-mono text-slate-600">{b.batchNumber}</td>
+                          <td className="p-2.5 text-right font-bold text-slate-700">{b.quantity}</td>
+                          <td className="p-2.5 text-right text-slate-600">Rs. {buy.toFixed(2)}</td>
+                          <td className="p-2.5 text-right font-bold text-slate-800">Rs. {sell.toFixed(2)}</td>
+                          <td className="p-2.5 text-right font-bold text-emerald-700">
+                            +Rs. {margin.toFixed(2)} ({buy > 0 ? ((margin / buy) * 100).toFixed(0) : 0}%)
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
+              <button onClick={() => { setActiveReportModal(null); navigate('/suppliers'); }} className="text-xs text-emerald-600 font-bold hover:underline">
+                Enter Inward Batch →
+              </button>
+              <button onClick={() => setActiveReportModal(null)} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold">
+                Close Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

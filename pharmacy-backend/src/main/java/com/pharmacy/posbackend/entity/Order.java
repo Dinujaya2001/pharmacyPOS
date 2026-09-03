@@ -1,5 +1,6 @@
 package com.pharmacy.posbackend.entity;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -24,6 +25,7 @@ public class Order {
     @Column(unique = true, nullable = false)
     private String invoiceNumber;
 
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime orderDate;
 
     @Column(nullable = false)
@@ -56,6 +58,8 @@ public class Order {
 
     @PrePersist
     protected void onCreate() {
-        this.orderDate = LocalDateTime.now();
+        if (this.orderDate == null) {
+            this.orderDate = LocalDateTime.now();
+        }
     }
 }

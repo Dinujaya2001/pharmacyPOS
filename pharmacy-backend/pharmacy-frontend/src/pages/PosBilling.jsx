@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axiosClient from '../api/axiosClient';
-import { Search, ShoppingCart, Trash2, Plus, Minus, Printer } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, Plus, Minus, CheckCircle, Package } from 'lucide-react';
 import ReceiptModal from '../components/ReceiptModal';
 
 export default function PosBilling() {
@@ -9,7 +9,6 @@ export default function PosBilling() {
   const [cart, setCart] = useState([]);
   const [discount, setDiscount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('CASH');
-  const [lastOrder, setLastOrder] = useState(null);
   const [receiptData, setReceiptData] = useState(null);
   const [showReceipt, setShowReceipt] = useState(false);
 
@@ -20,9 +19,9 @@ export default function PosBilling() {
   const fetchBatches = async () => {
     try {
       const res = await axiosClient.get('/inventory/batches');
-      setBatches(res.data.filter((b) => b.quantity > 0));
+      setBatches(res.data.filter((b) => Number(b.quantity) > 0));
     } catch (err) {
-      console.error('Failed to fetch batches', err);
+      console.error('Failed to fetch inventory batches', err);
     }
   };
 
@@ -31,7 +30,6 @@ export default function PosBilling() {
       setCart(cart.map((item) => (item.batchId === batchId ? { ...item, quantity: '' } : item)));
       return;
     }
-
     const numericValue = parseInt(value, 10);
     if (isNaN(numericValue) || numericValue <= 0) return;
 
@@ -40,7 +38,6 @@ export default function PosBilling() {
       setCart(cart.map((item) => (item.batchId === batchId ? { ...item, quantity: maxStock } : item)));
       return;
     }
-
     setCart(cart.map((item) => (item.batchId === batchId ? { ...item, quantity: numericValue } : item)));
   };
 
@@ -63,9 +60,10 @@ export default function PosBilling() {
         {
           batchId: batch.id,
           name: batch.medicine?.name,
+          brand: batch.medicine?.brand || 'Generic',
           batchNumber: batch.batchNumber,
-          unitPrice: batch.sellingPrice,
-          maxStock: batch.quantity,
+          unitPrice: Number(batch.sellingPrice),
+          maxStock: Number(batch.quantity),
           quantity: 1
         }
       ]);
@@ -132,7 +130,6 @@ export default function PosBilling() {
         paymentMethod: paymentMethod || 'CASH'
       });
 
-      setLastOrder(res.data);
       setShowReceipt(true);
       setCart([]);
       setDiscount(0);
@@ -145,79 +142,109 @@ export default function PosBilling() {
   const filteredBatches = batches.filter(
     (b) =>
       b.medicine?.name?.toLowerCase().includes(search.toLowerCase()) ||
-      b.batchNumber?.toLowerCase().includes(search.toLowerCase())
+      b.batchNumber?.toLowerCase().includes(search.toLowerCase()) ||
+      b.medicine?.brand?.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-6rem)]">
-      {/* Product Selection Area */}
-      <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 flex flex-col shadow-sm">
-        <div className="relative mb-4">
-          <Search className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 h-[calc(100vh-6rem)] font-sans">
+      {/* Left: Product Row/Table View */}
+      <div className="lg:col-span-8 bg-white rounded-2xl border border-slate-200/80 p-4 flex flex-col shadow-sm">
+        {/* Search Bar */}
+        <div className="relative mb-3.5">
+          <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
           <input
             type="text"
-            placeholder="Search medicine by name or batch..."
+            placeholder="Quick search medicine name, brand, or batch ID..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
+            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
           />
         </div>
 
-        <div className="flex-1 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-3 pr-1">
-          {filteredBatches.map((batch) => (
-            <div
-              key={batch.id}
-              onClick={() => addToCart(batch)}
-              className="p-3 border border-slate-100 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/20 rounded-xl cursor-pointer transition flex flex-col justify-between"
-            >
-              <div>
-                <h4 className="font-bold text-slate-800 text-sm">{batch.medicine?.name}</h4>
-                <p className="text-[11px] text-slate-500">
-                  Batch: {batch.batchNumber} | Exp: {batch.expiryDate}
-                </p>
-              </div>
-              <div className="mt-2 flex items-center justify-between">
-                <span className="font-bold text-emerald-600 text-sm">Rs. {batch.sellingPrice}</span>
-                <span className="text-xs px-2 py-0.5 bg-slate-200 text-slate-700 rounded-full font-medium">
-                  {batch.quantity} left
-                </span>
-              </div>
-            </div>
-          ))}
+        {/* Table Container */}
+        <div className="flex-1 overflow-y-auto border border-slate-200/70 rounded-xl">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-100/80 text-slate-600 font-semibold sticky top-0 border-b border-slate-200">
+              <tr>
+                <th className="p-2.5">Medicine Name</th>
+                <th className="p-2.5">Batch</th>
+                <th className="p-2.5">Expiry</th>
+                <th className="p-2.5 text-right">Available Qty</th>
+                <th className="p-2.5 text-right">Unit Price</th>
+                <th className="p-2.5 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredBatches.map((batch) => (
+                <tr
+                  key={batch.id}
+                  onClick={() => addToCart(batch)}
+                  className="hover:bg-emerald-50/40 cursor-pointer transition"
+                >
+                  <td className="p-2.5">
+                    <p className="font-bold text-slate-800">{batch.medicine?.name}</p>
+                    <p className="text-[10px] text-slate-400">{batch.medicine?.brand || 'OTC Item'}</p>
+                  </td>
+                  <td className="p-2.5 font-mono text-slate-600">{batch.batchNumber}</td>
+                  <td className="p-2.5 text-slate-600">{batch.expiryDate}</td>
+                  <td className="p-2.5 text-right">
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 font-bold rounded-md">
+                      {batch.quantity}
+                    </span>
+                  </td>
+                  <td className="p-2.5 text-right font-bold text-emerald-700">
+                    Rs. {Number(batch.sellingPrice).toFixed(2)}
+                  </td>
+                  <td className="p-2.5 text-center">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addToCart(batch);
+                      }}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-semibold transition shadow-sm"
+                    >
+                      + Add
+                    </button>
+                  </td>
+                </tr>
+              ))}
 
-          {filteredBatches.length === 0 && (
-            <div className="col-span-full py-12 text-center text-slate-400 text-sm">
-              No in-stock medicines found matching your search.
-            </div>
-          )}
+              {filteredBatches.length === 0 && (
+                <tr>
+                  <td colSpan="6" className="py-12 text-center text-slate-400 text-xs">
+                    No active medicines found matching your search.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      {/* Cart & Billing Checkout */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col justify-between shadow-sm">
+      {/* Right: Cart & Billing Area */}
+      <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 p-4 flex flex-col justify-between shadow-sm">
         <div>
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2">
-              <ShoppingCart className="w-4 h-4 text-emerald-600" /> Cart Items
+            <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+              <ShoppingCart className="w-4 h-4 text-emerald-600" /> Current Bill Items
             </h3>
-            <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-semibold">
-              {cart.length}
+            <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold">
+              {cart.length} Lines
             </span>
           </div>
 
-          <div className="max-h-80 overflow-y-auto space-y-2.5 pr-1">
+          <div className="max-h-72 overflow-y-auto space-y-2.5 pr-1">
             {cart.map((item) => (
               <div
                 key={item.batchId}
-                className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex flex-col gap-2"
+                className="p-2.5 bg-slate-50/80 rounded-xl border border-slate-100 flex flex-col gap-2"
               >
-                {/* Item Info & Remove */}
                 <div className="flex items-center justify-between">
                   <div className="truncate pr-2">
-                    <p className="font-semibold text-slate-800 text-xs truncate">{item.name}</p>
-                    <p className="text-[10px] text-slate-400">
-                      Rs. {item.unitPrice} each | Max: {item.maxStock}
-                    </p>
+                    <p className="font-bold text-slate-800 text-xs truncate">{item.name}</p>
+                    <p className="text-[10px] text-slate-400">Rs. {item.unitPrice.toFixed(2)} | Max: {item.maxStock}</p>
                   </div>
                   <div className="text-right">
                     <p className="text-xs font-bold text-slate-800">
@@ -232,14 +259,12 @@ export default function PosBilling() {
                   </div>
                 </div>
 
-                {/* Quantity Controls & Quick Add Buttons */}
                 <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
-                  {/* Direct Input + Minus/Plus */}
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => updateQuantity(item.batchId, -1)}
-                      className="p-1 bg-white border border-slate-200 rounded-md hover:bg-slate-100 transition"
+                      className="p-1 bg-white border border-slate-200 rounded hover:bg-slate-100"
                     >
                       <Minus className="w-3 h-3 text-slate-600" />
                     </button>
@@ -249,49 +274,38 @@ export default function PosBilling() {
                       min="1"
                       max={item.maxStock}
                       value={item.quantity}
-                      onChange={(e) =>
-                        handleDirectQuantityChange(item.batchId, e.target.value, item.maxStock)
-                      }
-                      className="w-14 px-1.5 py-0.5 text-center text-xs font-bold bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      onChange={(e) => handleDirectQuantityChange(item.batchId, e.target.value, item.maxStock)}
+                      className="w-14 px-1 py-0.5 text-center text-xs font-bold bg-white border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
 
                     <button
                       type="button"
                       onClick={() => updateQuantity(item.batchId, 1)}
-                      className="p-1 bg-white border border-slate-200 rounded-md hover:bg-slate-100 transition"
+                      className="p-1 bg-white border border-slate-200 rounded hover:bg-slate-100"
                     >
                       <Plus className="w-3 h-3 text-slate-600" />
                     </button>
                   </div>
 
-                  {/* Quick Select Buttons (+10, 30, 60) */}
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() =>
-                        handleDirectQuantityChange(
-                          item.batchId,
-                          (Number(item.quantity) || 0) + 10,
-                          item.maxStock
-                        )
-                      }
-                      className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-semibold rounded transition"
+                      onClick={() => handleDirectQuantityChange(item.batchId, (Number(item.quantity) || 0) + 10, item.maxStock)}
+                      className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-bold rounded"
                     >
                       +10
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDirectQuantityChange(item.batchId, 30, item.maxStock)}
-                      title="Set 30 Tablets (1 Month)"
-                      className="px-1.5 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[10px] font-semibold rounded transition"
+                      className="px-1.5 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[10px] font-bold rounded"
                     >
                       30
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDirectQuantityChange(item.batchId, 60, item.maxStock)}
-                      title="Set 60 Tablets (2 Months)"
-                      className="px-1.5 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[10px] font-semibold rounded transition"
+                      className="px-1.5 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[10px] font-bold rounded"
                     >
                       60
                     </button>
@@ -302,18 +316,19 @@ export default function PosBilling() {
 
             {cart.length === 0 && (
               <div className="py-8 text-center text-slate-400 text-xs">
-                Cart is empty. Click a medicine to add.
+                Cart is empty. Select items from the table.
               </div>
             )}
           </div>
         </div>
 
         {/* Calculation & Checkout */}
-        <div className="pt-4 border-t border-slate-100 space-y-3">
+        <div className="pt-3 border-t border-slate-100 space-y-2.5">
           <div className="flex justify-between text-xs text-slate-500">
             <span>Subtotal:</span>
             <span>Rs. {grossTotal.toFixed(2)}</span>
           </div>
+
           <div className="flex items-center justify-between text-xs">
             <span className="text-slate-500">Discount (Rs):</span>
             <input
@@ -321,50 +336,42 @@ export default function PosBilling() {
               min="0"
               value={discount}
               onChange={(e) => setDiscount(e.target.value)}
-              className="w-20 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-right text-xs"
+              className="w-20 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-right text-xs focus:ring-1 focus:ring-emerald-500"
             />
           </div>
-          <div className="flex justify-between font-bold text-base text-slate-800 pt-2 border-t border-slate-100">
+
+          <div className="flex justify-between font-bold text-sm text-slate-800 pt-1 border-t border-slate-100">
             <span>Net Total:</span>
-            <span className="text-emerald-600">Rs. {netTotal.toFixed(2)}</span>
+            <span className="text-emerald-700 text-base">Rs. {netTotal.toFixed(2)}</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setPaymentMethod('CASH')}
-              className={`py-1.5 text-xs font-semibold rounded-lg border transition ${
-                paymentMethod === 'CASH'
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-slate-50 text-slate-600 border-slate-200'
-              }`}
-            >
-              CASH
-            </button>
-            <button
-              type="button"
-              onClick={() => setPaymentMethod('CARD')}
-              className={`py-1.5 text-xs font-semibold rounded-lg border transition ${
-                paymentMethod === 'CARD'
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-slate-50 text-slate-600 border-slate-200'
-              }`}
-            >
-              CARD
-            </button>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            {['CASH', 'CARD'].map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setPaymentMethod(m)}
+                className={`py-1.5 text-xs font-bold rounded-xl border transition ${
+                  paymentMethod === m
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-slate-50 text-slate-600 border-slate-200'
+                }`}
+              >
+                {m}
+              </button>
+            ))}
           </div>
 
           <button
             onClick={handleCheckout}
             disabled={cart.length === 0}
-            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm rounded-xl shadow-md transition duration-150 disabled:opacity-50"
+            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition disabled:opacity-50"
           >
             Complete Checkout (Rs. {netTotal.toFixed(2)})
           </button>
         </div>
       </div>
 
-      {/* Thermal Receipt Modal */}
       <ReceiptModal
         isOpen={showReceipt}
         onClose={() => setShowReceipt(false)}
