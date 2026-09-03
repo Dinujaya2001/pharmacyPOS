@@ -149,7 +149,6 @@ export default function Dashboard() {
   };
 
   const todayStr = new Date().toLocaleDateString('en-CA');
-  const maxWeeklySale = Math.max(...weeklyData.map(d => d.sales), 100);
 
   return (
     <div className="space-y-5 bg-[#f4f6f9] min-h-[calc(100vh-5rem)] -m-6 p-6 font-sans">
@@ -225,33 +224,90 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 7-Day Revenue Trend Chart & Quick Analytics */}
+      {/* 7-Day Revenue Trend Line Graph & Quick Analytics */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 print:hidden">
-        {/* Weekly Revenue Graph */}
-        <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
+        {/* Weekly Revenue Line Graph */}
+        <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-emerald-600" /> Past 7 Days Revenue Trend (Rs)
             </h3>
-            <span className="text-[11px] text-slate-400">Live Sales Data</span>
+            <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+              Live Sales Curve
+            </span>
           </div>
 
-          <div className="h-44 flex items-end justify-between gap-3 pt-4 px-2 border-b border-slate-100">
-            {weeklyData.map((w, idx) => {
-              const heightPercent = Math.max(12, Math.round((w.sales / maxWeeklySale) * 100));
+          {/* SVG Line Graph Container */}
+          <div className="relative w-full h-48 pt-2">
+            {weeklyData.length > 0 && (() => {
+              const svgWidth = 600;
+              const svgHeight = 150;
+              const paddingX = 40;
+              const paddingY = 20;
+              const maxVal = Math.max(...weeklyData.map(d => d.sales), 100);
+
+              const points = weeklyData.map((d, i) => {
+                const x = paddingX + (i * (svgWidth - 2 * paddingX)) / (weeklyData.length - 1);
+                const y = svgHeight - paddingY - (d.sales / maxVal) * (svgHeight - 2 * paddingY);
+                return { x, y, sales: d.sales, day: d.day, date: d.date };
+              });
+
+              const pathD = points.reduce((acc, p, i) => {
+                if (i === 0) return `M ${p.x} ${p.y}`;
+                const prev = points[i - 1];
+                const cx = (prev.x + p.x) / 2;
+                return `${acc} C ${cx} ${prev.y}, ${cx} ${p.y}, ${p.x} ${p.y}`;
+              }, '');
+
+              const areaD = `${pathD} L ${points[points.length - 1].x} ${svgHeight - paddingY} L ${points[0].x} ${svgHeight - paddingY} Z`;
+
               return (
-                <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 group">
-                  <div className="text-[10px] font-bold text-slate-600 opacity-0 group-hover:opacity-100 transition">
-                    Rs. {w.sales.toFixed(0)}
-                  </div>
-                  <div
-                    style={{ height: `${heightPercent}%` }}
-                    className="w-full max-w-[42px] bg-emerald-500 hover:bg-emerald-600 rounded-t-lg transition-all duration-300 shadow-sm"
-                  />
-                  <span className="text-[11px] font-semibold text-slate-500 mt-1">{w.day}</span>
-                </div>
+                <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-full overflow-visible">
+                  <defs>
+                    <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10b981" stopOpacity="0.35" />
+                      <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                    </linearGradient>
+                  </defs>
+
+                  {/* Horizontal Guides */}
+                  <line x1={paddingX} y1={paddingY} x2={svgWidth - paddingX} y2={paddingY} stroke="#f1f5f9" strokeWidth="1" strokeDasharray="3 3" />
+                  <line x1={paddingX} y1={svgHeight / 2} x2={svgWidth - paddingX} y2={svgHeight / 2} stroke="#f1f5f9" strokeWidth="1" strokeDasharray="3 3" />
+                  <line x1={paddingX} y1={svgHeight - paddingY} x2={svgWidth - paddingX} y2={svgHeight - paddingY} stroke="#e2e8f0" strokeWidth="1.5" />
+
+                  {/* Gradient Under Area */}
+                  <path d={areaD} fill="url(#salesGrad)" />
+
+                  {/* Green Stroke Line */}
+                  <path d={pathD} fill="none" stroke="#10b981" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+
+                  {/* Data Points */}
+                  {points.map((p, i) => (
+                    <g key={i} className="group cursor-pointer">
+                      <circle cx={p.x} cy={p.y} r="6" fill="#10b981" fillOpacity="0.2" className="group-hover:r-8 transition-all" />
+                      <circle cx={p.x} cy={p.y} r="4" fill="#ffffff" stroke="#059669" strokeWidth="2.5" />
+                      <text
+                        x={p.x}
+                        y={p.y - 10}
+                        textAnchor="middle"
+                        className={`text-[10px] font-bold ${p.sales > 0 ? 'fill-emerald-800' : 'fill-slate-400 opacity-0 group-hover:opacity-100'} transition-opacity`}
+                      >
+                        {p.sales > 0 ? `Rs. ${p.sales.toFixed(0)}` : '0'}
+                      </text>
+                    </g>
+                  ))}
+                </svg>
               );
-            })}
+            })()}
+          </div>
+
+          {/* X-Axis Labels */}
+          <div className="flex justify-between px-6 pt-1 text-xs font-bold text-slate-500 border-t border-slate-100">
+            {weeklyData.map((w, idx) => (
+              <div key={idx} className="text-center">
+                <span className={w.date === todayStr ? 'text-emerald-700 font-extrabold' : ''}>{w.day}</span>
+              </div>
+            ))}
           </div>
         </div>
 
